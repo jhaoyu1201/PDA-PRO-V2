@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Point, Layer } from './types';
 import ControlPanel from './components/ControlPanel';
