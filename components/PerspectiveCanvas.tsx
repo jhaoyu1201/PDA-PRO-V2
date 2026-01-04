@@ -71,15 +71,19 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // 繪製背景與圖片
+    // 背景
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 繪製圖片
     ctx.save();
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(imgX, imgY, imgW, imgH);
-    ctx.globalAlpha = isGuideMode ? 0.6 : 0.4; 
+    ctx.globalAlpha = isGuideMode ? 0.4 : 0.6;
     ctx.drawImage(image, imgX, imgY, imgW, imgH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.strokeRect(imgX, imgY, imgW, imgH);
     ctx.restore();
 
-    // 繪製透視線與網格
+    // 繪製各圖層
     layers.forEach(layer => {
       if (!layer.visible) return;
       const isActive = layer.id === activeLayerId;
@@ -87,7 +91,7 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
       
       ctx.save();
       ctx.strokeStyle = layer.color;
-      let baseAlpha = isActive ? 1.0 : (isHovered ? 0.6 : 0.3);
+      let baseAlpha = isActive ? 1.0 : (isHovered ? 0.7 : 0.3);
       if (isGuideMode) baseAlpha *= 0.2; 
       ctx.globalAlpha = baseAlpha;
       ctx.lineWidth = (isActive || isHovered) ? layer.width + 1 : layer.width;
@@ -98,6 +102,7 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
         layer.points.forEach((vp) => {
           const sx = centerX + vp.x * workspaceZoom;
           const sy = centerY + vp.y * workspaceZoom;
+          
           ctx.beginPath();
           for (let i = 0; i < totalSegments; i++) {
             const rad = (i * angleStep * Math.PI) / 180;
@@ -107,28 +112,31 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
           }
           ctx.stroke();
 
-          // 消失點控制點
+          // 消失點標記
           if (!isGuideMode) {
             ctx.save();
             ctx.globalAlpha = isActive ? 1.0 : 0.7;
             ctx.fillStyle = layer.color;
-            ctx.beginPath(); ctx.arc(sx, sy, isActive ? 8 : 5, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = layer.locked ? '#fbbf24' : '#ffffff';
-            ctx.lineWidth = 2; ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(sx, sy, isActive ? 7 : 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            if (layer.locked) {
+              ctx.fillStyle = '#fbbf24';
+              ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill();
+            }
             ctx.restore();
           }
         });
       } else {
-        // 繪製正交平行網格
         const dx = imgW / layer.density;
         const dy = imgH / (layer.densityY || 1);
-        
-        // 垂直線
         for (let i = 0; i <= layer.density; i++) {
           const x = imgX + i * dx;
           ctx.beginPath(); ctx.moveTo(x, imgY); ctx.lineTo(x, imgY + imgH); ctx.stroke();
         }
-        // 水平線
         for (let j = 0; j <= (layer.densityY || 1); j++) {
           const y = imgY + j * dy;
           ctx.beginPath(); ctx.moveTo(imgX, y); ctx.lineTo(imgX + imgW, y); ctx.stroke();
@@ -137,6 +145,7 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
       ctx.restore();
     });
 
+    // 偵測模式引導線
     if (isGuideMode) {
       ctx.save(); ctx.setLineDash([10, 5]); ctx.lineWidth = 2; ctx.strokeStyle = '#fbbf24'; 
       [...guideLines, tempGuide].filter(Boolean).forEach((line) => {
@@ -170,26 +179,6 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
           const sy = centerY + vp.y * workspaceZoom;
           const distToPoint = Math.sqrt((mouseX - sx)**2 + (mouseY - sy)**2);
           if (distToPoint < 15) return { id: layer.id, type: 'point' as const };
-
-          const totalSegments = layer.density * 4;
-          const angleStep = 360 / totalSegments;
-          for (let i = 0; i < totalSegments; i++) {
-            const rad = (i * angleStep * Math.PI) / 180;
-            const distToLine = Math.abs((mouseX - sx) * Math.sin(rad) - (mouseY - sy) * Math.cos(rad));
-            const dot = (mouseX - sx) * Math.cos(rad) + (mouseY - sy) * Math.sin(rad);
-            if (distToLine < 6 && dot > -20) return { id: layer.id, type: 'line' as const };
-          }
-        }
-      } else {
-        const dx = imgW / layer.density;
-        const dy = imgH / (layer.densityY || 1);
-        for (let i = 0; i <= layer.density; i++) {
-          const x = imgX + i * dx;
-          if (Math.abs(mouseX - x) < 6 && mouseY > imgY && mouseY < imgY + imgH) return { id: layer.id, type: 'line' as const };
-        }
-        for (let j = 0; j <= (layer.densityY || 1); j++) {
-          const y = imgY + j * dy;
-          if (Math.abs(mouseY - y) < 6 && mouseX > imgX && mouseX < imgX + imgW) return { id: layer.id, type: 'line' as const };
         }
       }
     }
@@ -225,7 +214,10 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
         setDragState({ layerId: hit.id, startMouse: { x: mx, y: my }, originalPoint: { ...targetLayer.points[0] } });
       }
     } else {
-      setActiveLayerId(null);
+      // 點擊空白處：新增一個消失點
+      const relX = (mx - cx) / workspaceZoom;
+      const relY = (my - cy) / workspaceZoom;
+      addVanishingPoint({ x: relX, y: relY });
     }
   };
 
@@ -264,7 +256,8 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
       setTempGuide(null);
       return;
     }
-    setDragState(null); setIsPanning(false);
+    setDragState(null); 
+    setIsPanning(false);
   };
 
   return (
@@ -275,16 +268,25 @@ const PerspectiveCanvas: React.FC<PerspectiveCanvasProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={(e) => setWorkspaceZoom(Math.min(Math.max(workspaceZoom - e.deltaY * 0.001, 0.05), 5))}
-        style={{ cursor: isGuideMode ? 'crosshair' : (isPanning || dragState ? 'grabbing' : (hoveredLayerId ? 'pointer' : 'default')) }}
+        onWheel={(e) => {
+          e.preventDefault();
+          const zoomSpeed = 0.0015;
+          const newZoom = Math.min(Math.max(workspaceZoom - e.deltaY * zoomSpeed, 0.05), 8);
+          setWorkspaceZoom(newZoom);
+        }}
+        className="touch-none"
+        style={{ cursor: isGuideMode ? 'crosshair' : (isPanning || dragState ? 'grabbing' : (hoveredLayerId ? 'pointer' : 'crosshair')) }}
       />
       <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end pointer-events-none">
-        <div className="bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 text-[10px] text-slate-400 font-mono tracking-widest uppercase inline-block">
-          Zoom: {Math.round(workspaceZoom * 100)}%
+        <div className="bg-slate-900/90 backdrop-blur-xl px-5 py-2.5 rounded-2xl border border-white/10 text-[11px] text-slate-400 font-mono tracking-wider shadow-2xl flex items-center gap-3">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+          ZOOM: {Math.round(workspaceZoom * 100)}%
         </div>
-        <button onClick={() => { setPan({x:0, y:0}); setWorkspaceZoom(0.6); }} className="bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl transition-all shadow-2xl pointer-events-auto active:scale-90">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-        </button>
+        <div className="flex gap-2 pointer-events-auto">
+          <button onClick={() => { setPan({x:0, y:0}); setWorkspaceZoom(0.6); }} className="bg-slate-800 hover:bg-slate-700 text-white p-4 rounded-2xl transition-all shadow-2xl active:scale-90 border border-white/5">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          </button>
+        </div>
       </div>
     </div>
   );
